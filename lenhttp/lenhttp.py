@@ -5,6 +5,7 @@ import os
 import time
 import signal
 import select
+import gzip
 from .logger import info, error, warning
 from .const import STATUS_CODE
 from typing import Union, Dict, Any, List, Callable, Coroutine, Tuple
@@ -29,71 +30,7 @@ class Endpoint:
 
 	def match(self, path: str):
 		"""Compares the path with current endpoint path."""
-		if all(sign in self.path for sign in ("<", ">")):
-			left_chars: list = []
-			right_chars: list = []
-			splitters: list = []
-
-			if self.path.startswith("/<") and len(path.split("/")) > 2:
-				return False # Its root directory.
-
-			for idx, char in enumerate(self.path):
-				# We will do little bit of lexer here.
-				if char == "<":
-					left_chars.append(idx)
-				elif char == ">":
-					right_chars.append(idx)
-
-			# Before we do second lexer lets do this check.
-			# Most likely not true, block em.
-			if self.path[1:left_chars[0]] != path[1:left_chars[0]]:
-				return False
-
-			if len(left_chars) != len(right_chars) \
-				or not left_chars and not right_chars: # They have to be equal.
-				return False
-
-			for idx, char in enumerate(path):
-				if char == "/":
-					splitters.append(idx)
-			splitters.pop(0)
-
-			# Dont ask me why this exist please.
-			if "/" in path[1:left_chars[0]] and not any(char in self.path[1:left_chars[0]] for char in ("<", ">")):
-				splitters.pop(0)
-
-			# Disclaimer: Code below is not perfect and I really know it, It was my
-			# first attempt to do such parser, it *works* but its really cursed.
-			# Btw: This is not the best parser out there, it works but i strongly not recommended to use it,
-			# the regex implementation turned out better than this so please use regex rather than this.
-			args = []
-			for i in range(len(left_chars)):
-				if i == 0: # We are going only right side.
-					if not splitters:
-						if (offset := len(self.path[right_chars[i]:]))-1 != 0:
-							args.append(path[left_chars[i]:-(offset-1)])
-						else:
-							args.append(path[left_chars[i]:])
-						return args # Only one arg found.
-					else:
-						args.append(path[left_chars[i]:splitters[i]])
-						continue
-				else:
-					try:
-						args.append(path[splitters[i-1]+1:splitters[i]])
-						continue
-					except IndexError:
-						# print(len(self.path[right_chars[i]:]))
-						if (offset := len(self.path[right_chars[i]:]))-1 != 0:
-							args.append(path[splitters[i-1]+1:-offset])
-							continue
-						else:
-							args.append(path[splitters[i-1]+1:])
-							continue
-
-			return args
-
-		elif isinstance(self.path, re.Pattern):
+		if isinstance(self.path, re.Pattern):
 			# Parse regex :D
 			args = self.path.match(path)
 			if not args:
@@ -102,7 +39,10 @@ class Endpoint:
 			if not args.groupdict():
 				return True # means someone just compiled regex to check if it match.
 			
-			return args.groupdict()
+			args_back = []
+			for key in args.groupdict():
+				args_back.append(args[key])
+			return args_back
 		elif isinstance(self.path, str):
 			# This is simple one
 			return self.path == path
@@ -134,6 +74,12 @@ class Router:
 	) -> Callable:
 		"""Adds the endpoint class to a set."""
 		def wrapper(handler: Coroutine) -> Coroutine:
+			# We convert <user_id> to regex.
+			if all(char in path for char in ("<", ">")) and not isinstance(path, re.Pattern):
+				new_path = re.compile(rf"{path.replace('<', '(?P<').replace('>', '>.+)')}")
+				self.endpoints.add(Endpoint(new_path, method, handler))
+				return handler
+
 			self.endpoints.add(Endpoint(path, method, handler))
 			return handler
 		return wrapper
@@ -328,7 +274,11 @@ class Request:
 				# Choose between multipart or www form.
 				if ctx_type.startswith("multipart/form-data") or \
 				 "form-data" in ctx_type:
-					await self._multipart_parser() 
+					await self._multipart_parser()
+
+	def add_header(self, name: str, content: str):
+		"""Adds header to callback."""
+		self.list_headers.append(f"{name}: {content}")
 
 	async def send(self, code: int, body: bytes):
 		"""Sends data back to the client.
@@ -375,6 +325,7 @@ class LenHTTP:
 		if kwargs.get("logging") is not None:
 			glob.logging = kwargs.pop("logging")
 
+		self.gzip: int = kwargs.get("gzip", 0)
 		self.routers: set = set()
 		self.before_serving_coros: set = set()
 		self.after_serving_coros: set = set()
@@ -435,10 +386,7 @@ class LenHTTP:
 		# find right route.
 		for endpoint in router.endpoints:
 			if (check := endpoint.match(path)):
-				if isinstance(check, dict):
-					resp = await endpoint.handler(request, **check)
-					code = 200
-				elif isinstance(check, list):
+				if isinstance(check, list):
 					resp = await endpoint.handler(request, *check)
 					code = 200
 				else:
@@ -447,6 +395,26 @@ class LenHTTP:
 				if request.type not in endpoint.method:
 					resp = b"Method not allowed!"
 					code = 405
+
+		if isinstance(resp, tuple):
+			code, resp = resp # Convert it to variables.
+
+		if (
+			self.gzip > 0 and
+			'Accept-Encoding' in request.headers and
+			'gzip' in request.headers['Accept-Encoding'] and
+			len(resp) > 1500 # ethernet frame size (minus headers)
+		):
+			# ignore files that're already compressed heavily
+			if not (
+				'Content-Type' in request.list_headers and
+				request.list_headers['Content-Type'] in (
+				# TODO: surely there's more i should be ignoring
+					'image/png', 'image/jpeg'
+				)
+			):
+				resp = gzip.compress(resp, self.gzip)
+				request.list_headers['Content-Encoding'] = 'gzip'
 			
 		await request.send(code, resp)
 
