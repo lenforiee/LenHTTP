@@ -8,7 +8,7 @@ import select
 import gzip
 from .logger import info, error, warning
 from .const import STATUS_CODE
-from typing import Union, Dict, Any, List, Callable, Coroutine, Tuple
+from typing import Union, Dict, Any, List, Callable, Coroutine, Tuple, Optional
 
 class Globals:
 	def __init__(self):
@@ -340,8 +340,10 @@ class LenHTTP:
 		"""Adds routers to server."""
 		self.routers |= routers
 
-	def add_task(self, task: Coroutine):
+	def add_task(self, task: Coroutine, *args):
 		"""Adds task to server."""
+		if args:
+			self.coro_tasks.add((task, args))
 		self.coro_tasks.add(task)
 
 	def add_tasks(self, tasks: set[Coroutine]):
@@ -475,7 +477,11 @@ class LenHTTP:
 			# Starts before serving coros and tasks.
 			for coroutine in self.before_serving_coros: await coroutine()
 			for coroutine in self.coro_tasks: 
-				task = self.loop.create_task(coroutine())
+				if isinstance(coroutine, tuple):
+					coro, args = coroutine
+					task = self.loop.create_task(coro(*args))
+				else:
+					task = self.loop.create_task(coroutine())
 				self.tasks.add(task)
 
 			# This part of code might look like https://github.com/cmyui/cmyui_pkg/blob/master/cmyui/web.py
