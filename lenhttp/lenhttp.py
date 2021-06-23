@@ -399,6 +399,9 @@ class LenHTTP:
 		if isinstance(resp, tuple):
 			code, resp = resp # Convert it to variables.
 
+		if isinstance(resp, str):
+			resp = resp.encode()
+
 		if (
 			self.gzip > 0 and
 			'Accept-Encoding' in request.headers and
