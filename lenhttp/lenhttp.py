@@ -460,6 +460,18 @@ class LenHTTP:
 		except socket.error:
 			pass
 
+	def _default_cb(self, t: asyncio.Task) -> None:
+        """A simple callback for tasks to log & call exc handler."""
+        if not t.cancelled():
+            exc = t.exception()
+            if exc and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
+                self.exceptions += 1
+
+                loop = asyncio.get_running_loop()
+                loop.default_exception_handler({
+                    'exception': exc
+                })
+
 	def start(self):
 		"""Starts LenHTTP in pernament loop."""
 		async def runner():
@@ -480,8 +492,10 @@ class LenHTTP:
 				if isinstance(coroutine, tuple):
 					coro, args = coroutine
 					task = self.loop.create_task(coro(*args))
+					task.add_done_callback(self._default_cb)
 				else:
 					task = self.loop.create_task(coroutine())
+					task.add_done_callback(self._default_cb)
 				self.tasks.add(task)
 
 			# This part of code might look like https://github.com/cmyui/cmyui_pkg/blob/master/cmyui/web.py
@@ -514,7 +528,7 @@ class LenHTTP:
 						# new connection received for server
 						client, _ = await self.loop.sock_accept(lsock)
 						task = self.loop.create_task(self.handle_request(client))
-						#task.add_done_callback(self._default_cb)
+						task.add_done_callback(self._default_cb)
 					elif reader is sig_rsock:
 						# received a blocked signal, shutdown
 						sig_received = signal.Signals(os.read(sig_rsock, 1)[0])
