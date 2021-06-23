@@ -462,16 +462,16 @@ class LenHTTP:
 			pass
 
 	def _default_cb(self, t: asyncio.Task) -> None:
-        """A simple callback for tasks to log & call exc handler."""
-        if not t.cancelled():
-            exc = t.exception()
-            if exc and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
-                self.exceptions += 1
+		"""A simple callback for tasks to log & call exc handler."""
+		if not t.cancelled():
+			exc = t.exception()
+			if exc and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
+				self.exceptions += 1
 
-                loop = asyncio.get_running_loop()
-                loop.default_exception_handler({
-                    'exception': exc
-                })
+				loop = asyncio.get_running_loop()
+				loop.default_exception_handler({
+					'exception': exc
+				})
 
 	def start(self):
 		"""Starts LenHTTP in pernament loop."""
