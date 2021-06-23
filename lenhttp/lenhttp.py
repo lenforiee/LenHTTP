@@ -325,6 +325,7 @@ class LenHTTP:
 		if kwargs.get("logging") is not None:
 			glob.logging = kwargs.pop("logging")
 
+		self.exceptions: int = 0
 		self.gzip: int = kwargs.get("gzip", 0)
 		self.routers: set = set()
 		self.before_serving_coros: set = set()
