@@ -49,13 +49,13 @@ async def testa(req: Request, ss_id: str):
 async def testb(req: Request, _id: int):
 	return f"The ID of map is {_id}".encode()
 
-@test.add_endpoint("/edit/<nick>/<action>")
-async def testb(req: Request, nick: str, action: str):
-	return f"The action <{action}> on {nick} was applied!".encode()
-
 @test.add_endpoint("/")
 async def testc(req: Request):
 	return b"Hello on main page!"
+
+@test.add_endpoint("/edit/<nick>/<action>")
+async def testd(req: Request, nick: str, action: str):
+	return f"The action <{action}> on {nick} was applied!".encode()
 
 server = LenHTTP(("127.0.0.1", PORT), logging=True)
 

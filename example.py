@@ -8,7 +8,7 @@ async def testa(req: Request, ss_id: str):
 	return f"ID of the screenshot is {ss_id}".encode()
 
 @test.add_endpoint("/osu/<bid>.osu")
-async def testb(req: Request, _id: int):
+async def testd(req: Request, _id: int):
 	return f"The ID of map is {_id}".encode()
 
 @test.add_endpoint("/edit/<nick>/<action>")
