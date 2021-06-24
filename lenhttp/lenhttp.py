@@ -398,7 +398,7 @@ class LenHTTP:
 				self.socket_fam = socket.AF_UNIX
 			else: raise ValueError('Invalid address.')
 
-			if self.socket_fam == socket.AF_UNIX:
+			if self.socket_fam is socket.AF_UNIX:
 				if os.path.exists(self.address):
 					# Unlink the unix socket
 					os.remove(self.address)
@@ -423,17 +423,17 @@ class LenHTTP:
 			sock = socket.socket(self.socket_fam)
 			sock.setblocking(False)
 			
-			if self.socket_fam == socket.AF_INET: # Should fix already binded port.
+			if self.socket_fam is socket.AF_INET: # Should fix already binded port.
 				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 			sock.bind(self.address)
-			if self.socket_fam == socket.AF_UNIX:
+			if self.socket_fam is socket.AF_UNIX:
 				os.chmod(self.address, 0o777)
 				
 			sock.listen(self.max_conns)
 
 			if glob.logging:
-				info(f"=== LenHTTP (ASGI) running on {addr_log} ===")
+				info(f"===== LenHTTP (ASGI) running on {addr_log} =====")
 			
 			close = False
 			while not close:
@@ -503,5 +503,5 @@ class LenHTTP:
 		finally:
 			future.remove_done_callback(_callback)
 			if glob.logging:
-				info("=== LenHTTP server is stopping ===")
+				info("===== LenHTTP server is stopping =====")
 			self.loop.close()
