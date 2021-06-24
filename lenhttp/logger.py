@@ -6,17 +6,6 @@ __name__ = "LoggerModule"
 __author__ = "Lenforiee"
 __desc__ = "My module but nerfed from colorama to be bare python."
 
-DEBUG = "debug" in sys.argv
-
-# Windows support
-# activated only when os name is nt (windows)
-if os.name == "nt":
-    from ctypes import windll
-    windll.kernel32.SetConsoleMode(
-        windll.kernel32.GetStdHandle(-11),
-        7
-    )
-
 def formatted_date():
     """Returns the current fromatted date in the format."""
 

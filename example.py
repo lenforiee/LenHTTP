@@ -1,5 +1,6 @@
-from lenhttp import *
 import re
+import asyncio
+from lenhttp import Router, Request, LenHTTP, logger
 PORT = 5563
 test = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
 
@@ -19,17 +20,17 @@ server = LenHTTP(("127.0.0.1", PORT), logging=True)
 
 @server.after_serving()
 async def after():
-	print("This should execute code when server is stopping")
+	logger.info("This should execute code when server is stopping")
 
 async def task():
 	while True:
 		await asyncio.sleep(5)
-		print("This will show every 5 secs.")
+		logger.info("This will show every 5 secs.")
 
 async def task1():
 	while True:
 		await asyncio.sleep(1)
-		print("This will show every 1 secs.")
+		logger.info("This will show every 1 secs.")
 
 server.add_router(test)
 server.add_tasks({task, task1})
