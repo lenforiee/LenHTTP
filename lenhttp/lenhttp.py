@@ -156,14 +156,14 @@ class Request:
 		try: content_len = int(self.headers["Content-Length"])
 		except KeyError: return # Get args request only.
 
-		to_read = ((offset + 4) + content_len) - len(buffer) # Find how much to read.
-		if to_read:
+		if (to_read := ((offset + 4) + content_len) - len(buffer)): # Find how much to read.
 			buffer += b"\x00" * to_read # Allocate space.
 			with memoryview(buffer)[-to_read:] as view:
 				while to_read:
 					read_bytes = await self.__loop.sock_recv_into(self.__client, view)
 					view = view[read_bytes:]
 					to_read -= read_bytes
+
 		# Add to body.
 		self.body += memoryview(buffer)[offset + 4 + len(self.body):].toreadonly().tobytes()
 
@@ -290,13 +290,13 @@ class LenHTTP:
 		"""Adds tasks to server."""
 		self.coro_tasks |= tasks
 
-	def find_router(self, host: str):
+	def find_router(self, host: str) -> Union[Router, None]:
 		"""Finds the right router."""
 		for router in self.routers:
 			if router.condition(host):
 				return router
 
-	def find_endpoint(self, router: Router, path: str) -> Tuple[Union[List[Any], bool], Endpoint]:
+	def find_endpoint(self, router: Router, path: str) -> Union[None, Tuple[Union[List[Any], bool], Endpoint]]:
 		"""Match an endpoint with given path."""
 		for endpoint in router.endpoints:
 			if (check := endpoint.match(path)):
@@ -357,11 +357,8 @@ class LenHTTP:
 
 		# Time logging.
 		end = time.time()
-		time_taken = (end - start)
-		if time_taken < 1:
-			request.elapsed = f"{round(time_taken * 1000, 2)}ms"
-		else:
-			request.elapsed = f"{round(time_taken, 2)}s"
+		if (_time := (end - start)) < 1: request.elapsed = f"{round(_time * 1000, 2)}ms"
+		else: request.elapsed = f"{round(_time, 2)}s"
 
 		if glob.logging:
 			info(f"{code} | Handled {request.type} {path} in {request.elapsed}")
@@ -392,7 +389,7 @@ class LenHTTP:
 
 	def start(self) -> None:
 		"""Starts an http server in perma loop."""
-		async def runner():
+		async def runner() -> None:
 			if isinstance(self.address, tuple):
 				addr_log = f"http://{self.address[0]}:{self.address[1]}/"
 				self.socket_fam = socket.AF_INET
@@ -439,7 +436,7 @@ class LenHTTP:
 				info(f"=== LenHTTP (ASGI) running on {addr_log} ===")
 			
 			close = False
-			while True:
+			while not close:
 				await asyncio.sleep(0.01)
 				rlist, _, _ = select.select([sock, sig_rsock], [], [], 0)
 
@@ -452,13 +449,10 @@ class LenHTTP:
 						if glob.logging:
 							error(f"Received an interuption all apps will be closed..")
 						close = True
-					else:
-						pass # Just don't read dat.
-				
-				if close: break
+					else: pass # Just don't read dat.
 
 			# server closed, clean things up.
-			for sock_fd in {sock.fileno(), sig_rsock, sig_wsock}:
+			for sock_fd in (sock.fileno(), sig_rsock, sig_wsock): 
 				os.close(sock_fd)
 			signal.set_wakeup_fd(-1)
 
@@ -469,6 +463,7 @@ class LenHTTP:
 				if glob.logging:
 					_plural = lambda a: f"{a}s" if len(self.tasks) > 1 else a
 					warning(f"Canceling {len(self.tasks)} active {_plural('task')}..")
+
 				for task in self.tasks:
 					task.cancel()
 
