@@ -1,13 +1,10 @@
 from time import localtime, strftime
-from colorama import Fore, Back
 import sys
 import os
 
-CLEAR_FORE = Fore.RESET
-CLEAR_BACK = Back.RESET
-
 __name__ = "LoggerModule"
 __author__ = "Lenforiee"
+__desc__ = "My module but nerfed from colorama to be bare python."
 
 DEBUG = "debug" in sys.argv
 
@@ -27,7 +24,7 @@ def formatted_date():
     
     return strftime("%d-%m-%Y %H:%M:%S", localtime())
 
-def log_message(content: str, l_type: str, bg_col: Fore):
+def log_message(content: str, l_type: str, bg_col: str):
     """Creates the final string and writes it to console.
     
     Args:
@@ -35,25 +32,21 @@ def log_message(content: str, l_type: str, bg_col: Fore):
             console.
         l_type (str): The type of the log that will be
             displayed to the user.
-        bl_col (Fore): The background colour for the
+        bl_col (str): The background colour for the
             `l_type`.
     """
         
     # Print to console. Use this as faster ig.
     sys.stdout.write(
-        f"{Fore.WHITE}{bg_col}[{l_type}]{CLEAR_BACK} - "
-        f"[{formatted_date()}] {content}{CLEAR_FORE}\n"
+        f"\033[37m{bg_col}[{l_type}]\033[49m - "
+        f"[{formatted_date()}] {content}\033[39m\n"
     )
 
-def debug(message: str):
-    if DEBUG:
-        return log_message(message, "DEBUG", Back.YELLOW)
-
 def info(message: str):
-    return log_message(message, "INFO", Back.GREEN)
+    return log_message(message, "INFO", "\033[42m")
  
 def error(message: str):
-    return log_message(message, "ERROR", Back.RED)
+    return log_message(message, "ERROR", "\033[41m")
 
 def warning(message: str):
-    return log_message(message, "WARNING", Back.BLUE)
+    return log_message(message, "WARNING", "\033[44m")
