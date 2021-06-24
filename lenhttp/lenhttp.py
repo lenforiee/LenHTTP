@@ -25,7 +25,7 @@ class Request:
 		self,
 		client: socket.socket, 
 		loop: asyncio.AbstractEventLoop
-	):
+	) -> None:
 		self.__client: socket.socket = client
 		self.__loop: asyncio.AbstractEventLoop = loop
 
@@ -165,7 +165,7 @@ class Request:
 					to_read -= read_bytes
 
 		# Add to body.
-		self.body += memoryview(buffer)[offset + 4 + len(self.body):].toreadonly().tobytes()
+		self.body += memoryview(buffer)[offset + 4 + len(self.body):].tobytes()
 
 		if self.type == "POST":
 			if (ctx_type := self.headers.get("Content-Type")):
@@ -182,7 +182,7 @@ class Endpoint:
 		path: Union[str, re.Pattern],
 		methods: List[str],
 		handler: Coroutine
-	):
+	) -> None:
 		self.path: Union[str, re.Pattern] = path
 		self.methods: List[str] = methods
 		self.handler: Coroutine = handler
@@ -208,7 +208,7 @@ class Endpoint:
 
 class Router:
 	"""A class for a single app router."""
-	def __init__(self, domain: Union[str, set, re.Pattern]):
+	def __init__(self, domain: Union[str, set, re.Pattern]) -> None:
 		self.domain: Union[str, set, re.Pattern] = domain
 		self.condition: eval = None
 		self.endpoints: set = set()
@@ -258,10 +258,10 @@ class LenHTTP:
 		address: Union[Tuple[str, int], str], 
 		loop = asyncio.get_event_loop(),
 		**kwargs
-	):
+	) -> None:
 		self.address: Union[Tuple[str, int], str] = address
 		self.loop: asyncio.AbstractEventLoop = loop
-		self.socket_fam: Union[socket.AF_INET, socket.AF_UNIX]  = None
+		self.socket_fam: Union[socket.AF_INET, socket.AF_UNIX] = None
 		self.gzip = kwargs.get("gzip", 0)
 		self.max_conns = kwargs.get("max_conns", 5)
 		self.routers: set = set()
@@ -272,21 +272,21 @@ class LenHTTP:
 		if "logging" in kwargs:
 			glob.logging = kwargs.pop("logging")
 
-	def add_router(self, router: Router):
+	def add_router(self, router: Router) -> None:
 		"""Adds router to server."""
 		self.routers.add(router)
 
-	def add_routers(self, routers: set[Router]):
+	def add_routers(self, routers: set[Router]) -> None:
 		"""Adds routers to server."""
 		self.routers |= routers
 
-	def add_task(self, task: Coroutine, *args):
+	def add_task(self, task: Coroutine, *args) -> None:
 		"""Adds task to server."""
 		if args:
 			self.coro_tasks.add((task, args))
 		self.coro_tasks.add(task)
 
-	def add_tasks(self, tasks: set[Coroutine]):
+	def add_tasks(self, tasks: set[Coroutine]) -> None:
 		"""Adds tasks to server."""
 		self.coro_tasks |= tasks
 
@@ -437,7 +437,7 @@ class LenHTTP:
 			
 			close = False
 			while not close:
-				await asyncio.sleep(0.01)
+				await asyncio.sleep(0.001)
 				rlist, _, _ = select.select([sock, sig_rsock], [], [], 0)
 
 				for rd in rlist:
