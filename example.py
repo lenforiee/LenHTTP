@@ -1,4 +1,3 @@
-import re
 import asyncio
 from lenhttp import Router, Request, LenHTTP, logger
 PORT = 5563
@@ -12,11 +11,19 @@ async def testa(req: Request, ss_id: str):
 async def testb(req: Request, _id: int):
 	return f"The ID of map is {_id}".encode()
 
+@test.add_endpoint("/edit/<nick>/<action>")
+async def testb(req: Request, nick: str, action: str):
+	return f"The action <{action}> on {nick} was applied!".encode()
+
 @test.add_endpoint("/")
 async def testc(req: Request):
 	return b"Hello on main page!"
 
 server = LenHTTP(("127.0.0.1", PORT), logging=True)
+
+@server.before_serving()
+async def before():
+	logger.info("This should execute code before server start")
 
 @server.after_serving()
 async def after():

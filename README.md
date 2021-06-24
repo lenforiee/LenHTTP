@@ -36,8 +36,8 @@ The speed oriented asynchronous HTTP server taking full advantage of the latest 
 LenHTTP aims to offer peak Python performance while promoting beautiful, simple code structuring. Getting started is simple! Here is an example web app taking advantage of some of our great features!
 
 ```py
-from lenhttp import *
-import re
+import asyncio
+from lenhttp import Router, Request, LenHTTP, logger
 PORT = 5563
 test = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
 
@@ -49,25 +49,33 @@ async def testa(req: Request, ss_id: str):
 async def testb(req: Request, _id: int):
 	return f"The ID of map is {_id}".encode()
 
+@test.add_endpoint("/edit/<nick>/<action>")
+async def testb(req: Request, nick: str, action: str):
+	return f"The action <{action}> on {nick} was applied!".encode()
+
 @test.add_endpoint("/")
 async def testc(req: Request):
 	return b"Hello on main page!"
 
 server = LenHTTP(("127.0.0.1", PORT), logging=True)
 
+@server.before_serving()
+async def before():
+	logger.info("This should execute code before server start")
+
 @server.after_serving()
 async def after():
-	print("This should execute code when server is stopping")
+	logger.info("This should execute code when server is stopping")
 
 async def task():
 	while True:
 		await asyncio.sleep(5)
-		print("This will show every 5 secs.")
+		logger.info("This will show every 5 secs.")
 
 async def task1():
 	while True:
 		await asyncio.sleep(1)
-		print("This will show every 1 secs.")
+		logger.info("This will show every 1 secs.")
 
 server.add_router(test)
 server.add_tasks({task, task1})
