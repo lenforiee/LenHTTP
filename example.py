@@ -30,7 +30,7 @@ async def before():
 async def after():
 	logger.info("This should execute code when server is stopping")
 
-async def task(message):
+async def task():
 	while True:
 		await asyncio.sleep(5)
 		logger.info("This will show every 5 secs.")
