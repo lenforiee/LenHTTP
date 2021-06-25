@@ -284,7 +284,8 @@ class LenHTTP:
 		"""Adds task to server."""
 		if args:
 			self.coro_tasks.add((task, args))
-		self.coro_tasks.add(task)
+		else:
+			self.coro_tasks.add(task)
 
 	def add_tasks(self, tasks: set[Coroutine]) -> None:
 		"""Adds tasks to server."""
@@ -407,7 +408,7 @@ class LenHTTP:
 			if (coros := self.before_serving_coros):
 				for coro in coros: await coro()
 			
-			for coroutine in self.coro_tasks: 
+			for coroutine in self.coro_tasks:
 				if isinstance(coroutine, tuple):
 					coro, args = coroutine
 					task = self.loop.create_task(coro(*args))

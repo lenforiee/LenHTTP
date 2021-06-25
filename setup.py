@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="LenHTTP",
-    version="0.1.0",
+    version="2.1.6",
     author="Lenforiee",
     author_email="lenforiee@misumi.me",
     description="An powerful web framework written from scratch!",
