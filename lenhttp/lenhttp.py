@@ -6,6 +6,8 @@ import re
 import gzip
 import select
 import signal
+import json
+import traceback
 from urllib.parse import unquote
 from .const import STATUS_CODE
 from .logger import info, error, warning
@@ -34,12 +36,15 @@ class Request:
 		self.path: str = "/"
 		self.body: bytearray = bytearray()
 		self.elapsed: str = "0ms" # Logging purposes.
+		self.conns_served: int = 0
 
 		self.headers: Dict[str, Any] = {}
 		self.get_args: Dict[str, Any] = {}
 		self.post_args: Dict[str, Any] = {}
 		self.files: Dict[str, Any] = {}
 
+		self.handle_args: list = [self]
+		self.resp_code: int = 200
 		self.resp_headers: Dict[str, Any] = {}
 	
 	def add_header(self, key: str, value: Any) -> None:
@@ -80,6 +85,14 @@ class Request:
 		for args in BODY.split("&"):
 			k, v = args.split("=", 1)
 			self.post_args[unquote(k).strip()] = unquote(v).strip()
+
+	def return_json(self, code: int, content: dict):
+		"""Returns an response but in json."""
+		self.resp_code = code
+
+		resp_back = json.dumps(content)
+		self.add_header("Content-Type", "application/json")
+		return resp_back
 	
 	async def send(self, code: int, data: bytes) -> None:
 		"""Sends data back to the client.
@@ -265,6 +278,8 @@ class LenHTTP:
 		self.gzip = kwargs.get("gzip", 0)
 		self.max_conns = kwargs.get("max_conns", 5)
 		self.routers: set = set()
+		self.middleware_request: dict = {}
+		self._conns_served: int = 0
 		self.before_serving_coros: set = set()
 		self.after_serving_coros: set = set()
 		self.coro_tasks: set = set()
@@ -290,6 +305,13 @@ class LenHTTP:
 	def add_tasks(self, tasks: set[Coroutine]) -> None:
 		"""Adds tasks to server."""
 		self.coro_tasks |= tasks
+
+	def add_middleware(self, code: int) -> Callable:
+		"""Adds an custom middleware for handling codes."""
+		def wrapper(handler: Coroutine) -> Coroutine:
+			self.middleware_request[code] = handler
+			return handler
+		return wrapper
 
 	def find_router(self, host: str) -> Union[Router, None]:
 		"""Finds the right router."""
@@ -319,42 +341,59 @@ class LenHTTP:
 	async def handle_route(self, request: Request) -> None:
 		"""Handle a request route."""
 		start = time.time()
-		
+
 		host = request.headers['Host']
 		path = request.path
-		code = 404
+		request.resp_code = 404
 		resp = b"Request not found!"
+		try:
+			# Check if there is custom middleware handler.
+			if (handler := self.middleware_request.get(request.resp_code)):
+				resp = await handler(request)
+				if isinstance(resp, str): resp = resp.encode()
 
-		if not (router := self.find_router(host)):
-			return await request.send(code, resp)
-		
-		if (coros := router.before_serve):
-			for coro in coros: await coro()
+			if not (router := self.find_router(host)):
+				return await request.send(code, resp)
+			
+			if (coros := router.before_serve):
+				for coro in coros: await coro(request)
 
-		if (found := self.find_endpoint(router, path)):
-			check, endpoint = found
-			if isinstance(check, list):
-				resp = await endpoint.handler(request, *check)
-				code = 200
-			else:
-				resp = await endpoint.handler(request)
-				code = 200
-			if request.type not in endpoint.methods:
-				resp = b"Method not allowed!"
-				code = 405
+			if (found := self.find_endpoint(router, path)):
+				check, endpoint = found
+				if isinstance(check, list):
+					resp = await endpoint.handler(*request.handle_args, *check)
+					request.resp_code = 200
+				else:
+					resp = await endpoint.handler(*request.handle_args)
+					request.resp_code = 200
+				if request.type not in endpoint.methods:
+					resp = b"Method not allowed!"
+					request.resp_code = 405
 
-		if isinstance(resp, tuple): code, resp = resp # Convert it to variables.
-		if isinstance(resp, str): resp = resp.encode()
+			if isinstance(resp, tuple): code, resp = resp # Convert it to variables.
+			if isinstance(resp, str): resp = resp.encode()
 
-		if self.gzip > 0 and "gzip" in \
-			request.headers.get("Accept-Encoding", "") and \
-				len(resp) > 1500 and request.resp_headers.get("Content-Type", "") \
-					not in ('image/png', 'image/jpeg'):
-				# This is fucking cluster.
-				resp = gzip.compress(resp, self.gzip)
-				request.add_header("Content-Encoding", "gzip")
-		
-		await request.send(code, resp)
+			if self.gzip > 0 and "gzip" in \
+				request.headers.get("Accept-Encoding", "") and \
+					len(resp) > 1500 and request.resp_headers.get("Content-Type", "") \
+						not in ('image/png', 'image/jpeg'):
+					# This is fucking cluster.
+					resp = gzip.compress(resp, self.gzip)
+					request.add_header("Content-Encoding", "gzip")
+			
+			await request.send(request.resp_code, resp)
+		except Exception:
+			tb = traceback.format_exc()
+			request.resp_code = 500
+			resp = f"There was an exception\n{tb}".encode()
+			
+			if (handler := self.middleware_request.get(request.resp_code)):
+				resp = await handler(request, tb)
+				if isinstance(resp, str): resp = resp.encode()
+
+			if glob.logging:
+				error(f"There was an exception when handling path {request.path}\n{tb}")
+			await request.send(request.resp_code, resp)
 
 		# Time logging.
 		end = time.time()
@@ -362,7 +401,7 @@ class LenHTTP:
 		else: request.elapsed = f"{round(_time, 2)}s"
 
 		if glob.logging:
-			info(f"{code} | Handled {request.type} {path} in {request.elapsed}")
+			info(f"{request.resp_code} | Handled {request.type} {path} in {request.elapsed}")
 
 		# Serve coroutines after request with request class.
 		if (coros := router.after_serve):
@@ -378,6 +417,9 @@ class LenHTTP:
 			client.shutdown(socket.SHUT_RDWR)
 			client.close()
 			return
+
+		# For statistics.
+		req.conns_served = self._conns_served = self._conns_served + 1
 		
 		# Handle the route.
 		await self.handle_route(req)
