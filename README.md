@@ -37,27 +37,46 @@ LenHTTP aims to offer peak Python performance while promoting beautiful, simple 
 
 ```py
 import asyncio
+import re
+from typing import Any
 from lenhttp import Router, Request, LenHTTP, logger
-PORT = 5563
-test = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
 
-@test.add_endpoint("/ss/<ss_id>.png")
-async def testa(req: Request, ss_id: str):
+# Global var.
+PORT = 5563
+
+router = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
+@router.add_endpoint("/ss/<ss_id>.png")
+async def ss_handler(req: Request, ss_id: str):
 	return f"ID of the screenshot is {ss_id}".encode()
 
-@test.add_endpoint("/osu/<bid>.osu")
-async def testb(req: Request, _id: int):
-	return f"The ID of map is {_id}".encode()
+@router.add_endpoint("/osu/<bid>.osu")
+async def osu_file(req: Request, bid: int):
+	return f"The ID of map is {bid}".encode()
 
-@test.add_endpoint("/")
-async def testc(req: Request):
-	return b"Hello on main page!"
+@router.add_endpoint("/")
+async def main_page(req: Request):
+	return f"Hello on main page!".encode()
 
-@test.add_endpoint("/edit/<nick>/<action>")
-async def testd(req: Request, nick: str, action: str):
+@router.add_endpoint("/edit/<nick>/<action>")
+async def multiple_regex(req: Request, nick: str, action: str):
 	return f"The action <{action}> on {nick} was applied!".encode()
 
+@router.add_endpoint(re.compile(r"/regex/(?P<regex_var>.+)"))
+async def real_regex(req: Request, regex_var: Any):
+	return f"Real regex variable is {regex_var}".encode()
+
+@router.add_endpoint("/json")
+async def json_test(request: Request):
+	return request.return_json(200, {"status": 200, "message": "Hello World"})
+
 server = LenHTTP(("127.0.0.1", PORT), logging=True)
+@server.add_middleware(404)
+async def error(request):
+	return "404 Not found!"
+
+@server.add_middleware(500)
+async def error(request: Request, traceback: str):
+	return f"500 There was problem with handling request\n{traceback}".encode()
 
 @server.before_serving()
 async def before():
@@ -77,9 +96,44 @@ async def task1():
 		await asyncio.sleep(1)
 		logger.info("This will show every 1 secs.")
 
-server.add_router(test)
+server.add_router(router)
 server.add_tasks({task, task1})
 server.start()
+```
+
+We also have app easier version of code to mantain that offers the same features as LenHTTP class.
+```py
+import asyncio
+from lenhttp import Endpoint, Request, Application, logger
+
+async def home_page(request: Request):
+	"""Main page of app."""
+	return "Hello on main page!"
+
+async def users(request: Request, user_id: int):
+	"""Test function for regex testing."""
+	return f"Hello user with ID: {user_id}"
+
+app = Application(
+	port= 5563,
+	routes= [ Endpoint("/", home_page), Endpoint("/u/<user_id>", users) ]
+)
+
+@app.add_middleware(404)
+async def error(request: Request):
+	return "404 Not found!"
+
+@app.add_middleware(500)
+async def error(request: Request, traceback: str):
+	return f"500 There was problem with handling request\n{traceback}".encode()
+
+async def task():
+	while True:
+		await asyncio.sleep(5)
+		logger.info("This will show every 5 secs.")
+
+app.add_task(task)
+app.start()
 ```
 
 ## License
