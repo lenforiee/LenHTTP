@@ -569,7 +569,8 @@ class Application(LenHTTP):
 		self.routes: List[Endpoint] = routes
 		self.router: Union[Router, None] = None
 		kwargs["app"] = True
-		super().__init__(("127.0.0.1", port), **kwargs)
+		self.address = kwargs.get("address", "0.0.0.0")
+		super().__init__((self.address, port), **kwargs)
 		self.find_router: eval = lambda a: self.router
 		self.__init__routes()
 
