@@ -1,5 +1,5 @@
-from .lenhttp import Router, LenHTTP, Request
-from .logger import *
+from .lenhttp import Router, LenHTTP, Request, Endpoint, Application
+from .logger import info, error, warning
 
 class Logger:
 	"""Small wrapper around my logging funcs."""

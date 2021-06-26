@@ -193,12 +193,14 @@ class Endpoint:
 	def __init__(
 		self,
 		path: Union[str, re.Pattern],
-		methods: List[str],
-		handler: Coroutine
+		handler: Coroutine,
+		methods: List[str] = ["GET"]
 	) -> None:
 		self.path: Union[str, re.Pattern] = path
 		self.methods: List[str] = methods
 		self.handler: Coroutine = handler
+		if not isinstance(self.path, re.Pattern) and all(char in self.path for char in ("<", ">")):
+			self.path = re.compile(rf"{self.path.replace('<', '(?P<').replace('>', '>.+)')}")
 
 	def match(self, path: str) -> Union[bool, List[Any]]:
 		"""Compares the path with current endpoint path."""
@@ -256,11 +258,7 @@ class Router:
 	def add_endpoint(self, path: str, methods: List[str] = ["GET"]) -> Callable:
 		"""Adds the endpoint class to a set."""
 		def wrapper(handler: Coroutine) -> Coroutine:
-			# We convert /<variable>/ to regex.
-			if all(char in (_path := path) for char in ("<", ">")) and not isinstance(path, re.Pattern):
-				_path = re.compile(rf"{path.replace('<', '(?P<').replace('>', '>.+)')}")
-
-			self.endpoints.add(Endpoint(_path, methods, handler))
+			self.endpoints.add(Endpoint(path, handler, methods))
 			return handler
 		return wrapper
 
@@ -284,6 +282,7 @@ class LenHTTP:
 		self.after_serving_coros: set = set()
 		self.coro_tasks: set = set()
 		self.tasks: set = set()
+		self.app: bool = kwargs.get("app", False)
 		if "logging" in kwargs:
 			glob.logging = kwargs.pop("logging")
 
@@ -353,7 +352,7 @@ class LenHTTP:
 				if isinstance(resp, str): resp = resp.encode()
 
 			if not (router := self.find_router(host)):
-				return await request.send(code, resp)
+				return await request.send(request.resp_code, resp)
 			
 			if (coros := router.before_serve):
 				for coro in coros: await coro(request)
@@ -476,7 +475,10 @@ class LenHTTP:
 			sock.listen(self.max_conns)
 
 			if glob.logging:
-				info(f"===== LenHTTP (ASGI) running on {addr_log} =====")
+				if self.app:
+					info(f"===== LenHTTP (Application) running on {addr_log} =====")
+				else:
+					info(f"===== LenHTTP (ASGI) running on {addr_log} =====")
 			
 			close = False
 			while not close:
@@ -546,5 +548,34 @@ class LenHTTP:
 		finally:
 			future.remove_done_callback(_callback)
 			if glob.logging:
-				info("===== LenHTTP server is stopping =====")
+				if self.app:
+					info("===== LenHTTP application is stopping =====")
+				else:
+					info("===== LenHTTP server is stopping =====")
 			self.loop.close()
+
+class Application(LenHTTP):
+	"""A standalone http app class.
+
+	Note: This is wrapper around LenHTTP
+	to allow users not use Router class for easier code management.
+	"""
+	def __init__(
+		self,
+		port: int,
+		routes: List[Endpoint],
+		**kwargs
+	) -> None:
+		self.routes: List[Endpoint] = routes
+		self.router: Union[Router, None] = None
+		kwargs["app"] = True
+		super().__init__(("127.0.0.1", port), **kwargs)
+		self.find_router: eval = lambda a: self.router
+		self.__init__routes()
+
+	def __init__routes(self) -> None:
+		"""Initialise routes."""
+		self.router = Router("") # Placeholer router
+		for route in self.routes:
+			self.router.endpoints.add(route)
+

@@ -1,26 +1,37 @@
 import asyncio
-from _lenhttp import Router, Request, LenHTTP, logger
-PORT = 5563
-test = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
+import re
+from typing import Any
+from lenhttp import Router, Request, LenHTTP, logger
 
-@test.add_endpoint("/ss/<ss_id>.png")
-async def testa(req: Request, ss_id: str):
+# Global var.
+PORT = 5563
+
+router = Router({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
+@router.add_endpoint("/ss/<ss_id>.png")
+async def ss_handler(req: Request, ss_id: str):
 	return f"ID of the screenshot is {ss_id}".encode()
 
-@test.add_endpoint("/osu/<bid>.osu")
-async def testb(req: Request, bid: int):
+@router.add_endpoint("/osu/<bid>.osu")
+async def osu_file(req: Request, bid: int):
 	return f"The ID of map is {bid}".encode()
 
-@test.add_endpoint("/")
-async def testc(req: Request):
+@router.add_endpoint("/")
+async def main_page(req: Request):
 	return f"Hello on main page!".encode()
 
-@test.add_endpoint("/edit/<nick>/<action>")
-async def testd(req: Request, nick: str, action: str):
+@router.add_endpoint("/edit/<nick>/<action>")
+async def multiple_regex(req: Request, nick: str, action: str):
 	return f"The action <{action}> on {nick} was applied!".encode()
 
-server = LenHTTP(("127.0.0.1", PORT), logging=True)
+@router.add_endpoint(re.compile(r"/regex/(?P<regex_var>.+)"))
+async def real_regex(req: Request, regex_var: Any):
+	return f"Real regex variable is {regex_var}".encode()
 
+@router.add_endpoint("/json")
+async def json_test(request: Request):
+	return request.return_json(200, {"status": 200, "message": "Hello World"})
+
+server = LenHTTP(("127.0.0.1", PORT), logging=True)
 @server.add_middleware(404)
 async def error(request):
 	return "404 Not found!"
@@ -28,10 +39,6 @@ async def error(request):
 @server.add_middleware(500)
 async def error(request: Request, traceback: str):
 	return f"500 There was problem with handling request\n{traceback}".encode()
-
-@test.add_endpoint("/json")
-async def test12(request: Request):
-	return request.return_json(200, {"status": 200, "message": "Hello World"})
 
 @server.before_serving()
 async def before():
@@ -51,6 +58,6 @@ async def task1():
 		await asyncio.sleep(1)
 		logger.info("This will show every 1 secs.")
 
-server.add_router(test)
+server.add_router(router)
 server.add_tasks({task, task1})
 server.start()
