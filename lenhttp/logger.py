@@ -6,6 +6,16 @@ __name__ = "LoggerModule"
 __author__ = "Lenforiee"
 __desc__ = "My module but nerfed from colorama to be bare python."
 
+class Ansi:
+    BLACK = 40
+    RED = 41
+    GREEN = 42
+    YELLOW = 43
+    BLUE = 44
+    MAGENTA = 45
+    CYAN = 46
+    WHITE = 47
+
 def formatted_date():
     """Returns the current fromatted date in the format."""
 
@@ -30,6 +40,10 @@ def log_message(content: str, l_type: str, bg_col: str):
         f"\033[37m{bg_col}[{l_type}]\033[49m - "
         f"[{formatted_date()}] {content}\033[39m\n"
     )
+
+def custom_log(message: str, header: str, colour: Ansi):
+    """Prints custom log with custom header and colour"""
+    return log_message(message, header, f"\033[{colour}m")
 
 def info(message: str):
     return log_message(message, "INFO", "\033[42m")

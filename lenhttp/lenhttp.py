@@ -1,17 +1,20 @@
 import socket
 import asyncio
 import os
-import time
 import re
+import http
 import gzip
 import select
 import signal
 import json
 import traceback
+import subprocess
+from .timer import Timer
 from urllib.parse import unquote
-from .const import STATUS_CODE
 from .logger import info, error, warning
-from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List
+from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List, Iterable
+
+STATUS_CODE = {c.value: c.phrase for c in http.HTTPStatus}
 
 # Sadly no windows support.
 if os.name == "nt":
@@ -19,6 +22,7 @@ if os.name == "nt":
 
 class Globals:
 	logging = True
+	json = None
 glob = Globals()
 
 class Request:
@@ -49,7 +53,7 @@ class Request:
 	
 	def add_header(self, key: str, value: Any) -> None:
 		"""Adds header to response back headers."""
-		self.resp_headers.update({key: value})
+		self.resp_headers[key] = value
 
 	def _parse_headers(self, data: str) -> None:
 		"""Instance funtion to parse headers content
@@ -86,12 +90,13 @@ class Request:
 			k, v = args.split("=", 1)
 			self.post_args[unquote(k).strip()] = unquote(v).strip()
 
-	def return_json(self, code: int, content: dict):
+	def return_json(self, code: int, content: Union[dict, str, Any]):
 		"""Returns an response but in json."""
 		self.resp_code = code
 
-		resp_back = json.dumps(content)
-		self.add_header("Content-Type", "application/json")
+		json_parser = glob.json or json.dumps
+		resp_back = json_parser(content)
+		self.resp_headers["Content-Type"] = "application/json"
 		return resp_back
 	
 	async def send(self, code: int, data: bytes) -> None:
@@ -192,34 +197,43 @@ class Endpoint:
 	"""An dataclass to match route."""
 	def __init__(
 		self,
-		path: Union[str, re.Pattern],
+		path: Union[str, re.Pattern, Iterable],
 		handler: Coroutine,
 		methods: List[str] = ["GET"]
 	) -> None:
-		self.path: Union[str, re.Pattern] = path
+		self.path: Union[str, re.Pattern, Iterable] = path
 		self.methods: List[str] = methods
 		self.handler: Coroutine = handler
 		if not isinstance(self.path, re.Pattern) and all(char in self.path for char in ("<", ">")):
 			self.path = re.compile(rf"{self.path.replace('<', '(?P<').replace('>', '>.+)')}")
 
+	def parse_regex(self, path: str, regex_path: re.Pattern):
+		"""Checks for regex."""
+		if not (args := regex_path.match(path)):
+			return False
+
+		if not (adict := args.groupdict()):
+			return True
+
+		args_back = []
+		for key in adict:
+			args_back.append(unquote(adict[key]))
+		return args_back
+
 	def match(self, path: str) -> Union[bool, List[Any]]:
 		"""Compares the path with current endpoint path."""
 		if isinstance(self.path, re.Pattern):
 			# Parse regex :D
-			args = self.path.match(path)
-			if not args:
-				return False
-
-			if not (adict := args.groupdict()):
-				return True # means someone just compiled regex to check if it match.
-			
-			args_back = []
-			for key in adict:
-				args_back.append(args[key])
-			return args_back
+			return self.parse_regex(path, self.path)
 		elif isinstance(self.path, str):
 			# This is simple one
 			return self.path == path
+		elif isinstance(self.path, Iterable):
+			if path in self.path: return True
+			for p in self.path:
+				if isinstance(p, re.Pattern):
+					return self.parse_regex(path, p)
+			return False
 
 class Router:
 	"""A class for a single app router."""
@@ -229,15 +243,14 @@ class Router:
 		self.endpoints: set = set()
 		self.before_serve: set = set()
 		self.after_serve: set = set()
-		self.validate_domain()
-	
-	def validate_domain(self) -> None:
-		"""Validates if given domain was right
-		with our conditions."""
+
 		if isinstance(self.domain, str):
 			self.condition = lambda dom: dom == self.domain
-		elif isinstance(self.domain, set):
-			self.condition = lambda dom: dom in self.domain
+		elif isinstance(self.domain, Iterable):
+			if isinstance(next(iter(self.domain)), re.Pattern): # Python what the fuck you made me do.
+				self.condition = lambda dom: bool(p.match(dom) is not None for p in self.domain if isinstance(p, re.Pattern))
+			else:
+				self.condition = lambda dom: dom in self.domain
 		elif isinstance(self.domain, re.Pattern):
 			self.condition = lambda dom: self.domain.match(dom) is not None
 
@@ -255,7 +268,7 @@ class Router:
 			return handler
 		return wrapper
 	
-	def add_endpoint(self, path: str, methods: List[str] = ["GET"]) -> Callable:
+	def add_endpoint(self, path: Union[str, re.Pattern, Iterable], methods: List[str] = ["GET"]) -> Callable:
 		"""Adds the endpoint class to a set."""
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.endpoints.add(Endpoint(path, handler, methods))
@@ -283,8 +296,8 @@ class LenHTTP:
 		self.coro_tasks: set = set()
 		self.tasks: set = set()
 		self.app: bool = kwargs.get("app", False)
-		if "logging" in kwargs:
-			glob.logging = kwargs.pop("logging")
+		if "logging" in kwargs: glob.logging = kwargs.pop("logging")
+		if "json_serialize" in kwargs: glob.json = kwargs.pop("json_serialize")
 
 	def add_router(self, router: Router) -> None:
 		"""Adds router to server."""
@@ -339,7 +352,6 @@ class LenHTTP:
 
 	async def handle_route(self, request: Request) -> None:
 		"""Handle a request route."""
-		start = time.time()
 
 		host = request.headers['Host']
 		path = request.path
@@ -352,10 +364,12 @@ class LenHTTP:
 				if isinstance(resp, str): resp = resp.encode()
 
 			if not (router := self.find_router(host)):
+				request.elapsed = request.elapsed.time_str()
+				if glob.logging:
+					info(f"{request.resp_code} | Handled {request.type} {host}{path} in {request.elapsed}")
 				return await request.send(request.resp_code, resp)
 			
-			if (coros := router.before_serve):
-				for coro in coros: await coro(request)
+			for coro in router.before_serve: await coro(request)
 
 			if (found := self.find_endpoint(router, path)):
 				check, endpoint = found
@@ -366,10 +380,12 @@ class LenHTTP:
 					resp = await endpoint.handler(*request.handle_args)
 					request.resp_code = 200
 				if request.type not in endpoint.methods:
-					resp = b"Method not allowed!"
 					request.resp_code = 405
+					resp = b"Method not allowed!"
+					if (handler := self.middleware_request.get(request.resp_code)):
+						resp = await handler(request)
 
-			if isinstance(resp, tuple): code, resp = resp # Convert it to variables.
+			if isinstance(resp, tuple): request.resp_code, resp = resp # Convert it to variables.
 			if isinstance(resp, str): resp = resp.encode()
 
 			if self.gzip > 0 and "gzip" in \
@@ -395,22 +411,22 @@ class LenHTTP:
 			await request.send(request.resp_code, resp)
 
 		# Time logging.
-		end = time.time()
-		if (_time := (end - start)) < 1: request.elapsed = f"{round(_time * 1000, 2)}ms"
-		else: request.elapsed = f"{round(_time, 2)}s"
-
-		if glob.logging:
-			info(f"{request.resp_code} | Handled {request.type} {path} in {request.elapsed}")
+		# This is not accurate but its fine for someone who dont want to use my logger.
+		request.elapsed = request.elapsed.time_str()
 
 		# Serve coroutines after request with request class.
-		if (coros := router.after_serve):
-			for coro in coros: await coro(request)
+		for coro in router.after_serve: await coro(request)
 
 	async def handle_request(self, client: socket.socket) -> None:
 		"""Handles a connection from socket."""
+		timer1 = Timer()
+		timer2 = Timer()
+		timer1.start()
+		timer2.start()
 
 		# Parse request.
 		await (req := Request(client, self.loop)).perform_parse()
+		req.elapsed = timer1
 
 		if "Host" not in req.headers:
 			client.shutdown(socket.SHUT_RDWR)
@@ -429,6 +445,11 @@ class LenHTTP:
 			client.close()
 		except Exception: pass
 
+		if glob.logging:
+			timed = timer2.time_str()
+			path = f"{req.headers['Host']}{req.path}"
+			info(f"{req.resp_code} | Handled {req.type} {path} in {timed}")
+
 	def start(self) -> None:
 		"""Starts an http server in perma loop."""
 		async def runner() -> None:
@@ -446,8 +467,7 @@ class LenHTTP:
 					os.remove(self.address)
 				
 			# Starts before serving coros and tasks.
-			if (coros := self.before_serving_coros):
-				for coro in coros: await coro()
+			for coro in self.before_serving_coros: await coro()
 			
 			for coroutine in self.coro_tasks:
 				if isinstance(coroutine, tuple):
@@ -468,7 +488,14 @@ class LenHTTP:
 			if self.socket_fam is socket.AF_INET: # Should fix already binded port.
 				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-			sock.bind(self.address)
+			try:
+				sock.bind(self.address)
+			except OSError as e:
+				warning("If it ask you for sudo password please enter it otherwise port will not unbind!")
+				subprocess.run(f"sudo kill -9 $(sudo lsof -t -i:{self.address[1]})", shell=True)
+				error("We have unbinded the port you want to use, just start server again!")
+				os._exit(1)
+
 			if self.socket_fam is socket.AF_UNIX:
 				os.chmod(self.address, 0o777)
 				
@@ -482,7 +509,7 @@ class LenHTTP:
 			
 			close = False
 			while not close:
-				await asyncio.sleep(0.001)
+				await asyncio.sleep(0.01) # Python what the fuck.
 				rlist, _, _ = select.select([sock, sig_rsock], [], [], 0)
 
 				for rd in rlist:
@@ -494,15 +521,14 @@ class LenHTTP:
 						if glob.logging:
 							error(f"Received an interuption all apps will be closed..")
 						close = True
-					else: pass # Just don't read dat.
+					else: raise ValueError(f"Invalid reader: {rd}") # Just don't read dat.
 
 			# server closed, clean things up.
 			for sock_fd in (sock.fileno(), sig_rsock, sig_wsock): 
 				os.close(sock_fd)
 			signal.set_wakeup_fd(-1)
 
-			if (coros := self.after_serving_coros):
-				for coro in coros: await coro()
+			for coro in self.after_serving_coros: await coro()
 
 			if self.tasks:
 				if glob.logging:
@@ -569,8 +595,8 @@ class Application(LenHTTP):
 		self.routes: List[Endpoint] = routes
 		self.router: Union[Router, None] = None
 		kwargs["app"] = True
-		self.address = kwargs.get("address", "0.0.0.0")
-		super().__init__((self.address, port), **kwargs)
+		self.loopback_addr = kwargs.get("loopback", "0.0.0.0")
+		super().__init__((self.loopback_addr, port), **kwargs)
 		self.find_router: eval = lambda a: self.router
 		self.__init__routes()
 
