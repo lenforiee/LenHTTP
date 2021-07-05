@@ -10,7 +10,7 @@ import json
 import traceback
 import subprocess
 from .timer import Timer
-from urllib.parse import unquote
+from .cutils import unquote, www_form, multipart_parse, header_parser
 from .logger import info, error, warning
 from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List, Iterable
 
@@ -64,31 +64,15 @@ class Request:
 		Returns:
 			Parsed headers, get_args.
 		"""
-		self.type, self.path, self.version = data.splitlines()[0].split(" ")
-		self.version = self.version.split("/")[1] # Stupid parsing but eh.
-
-		# Parsing get args.
-		if "?" in self.path:
-			self.path, args = self.path.split("?")
-
-			for arg in args.split("&"):
-				key, value = arg.split("=", 1)
-				self.get_args[key] = value.strip()
-
-		# Now headers.
-		for key, value in [header.split(":", 1) for header in data.splitlines()[1:]]:
-			self.headers[key] = value.strip()
+		(self.type, self.path, self.version,
+			self.headers, self.get_args) = header_parser(data)
 
 	def _www_form_parser(self) -> None:
 		"""Optional parser for parsing form data.
 		Returns:
 			Updates self.post with form data args.
 		"""
-		BODY = self.body.decode()
-
-		for args in BODY.split("&"):
-			k, v = args.split("=", 1)
-			self.post_args[unquote(k).strip()] = unquote(v).strip()
+		self.post_args |= www_form(self.body)
 
 	def return_json(self, code: int, content: Union[dict, str, Any]):
 		"""Returns an response but in json."""
@@ -136,28 +120,7 @@ class Request:
 
 		# Create an boundary.
 		boundary = "--" + self.headers['Content-Type'].split('boundary=', 1)[1]
-		parts = self.body.split(boundary.encode())[1:]
-
-		for part in parts[:-1]:
-
-			# We get headers & body.
-			headers, body = part.split(b"\r\n\r\n", 1)
-			
-			temp_headers = {}
-			for key, val in [p.split(":", 1) for p in [h for h in headers.decode().split("\r\n")[1:]]]:
-				temp_headers[key] = val.strip()
-
-			if not (content := temp_headers.get("Content-Disposition")):
-				# Main header don't exist, we can't continue.
-				continue
-
-			temp_args = {}
-			for key, val in [args.split("=", 1) for args in content.split(";")[1:]]:
-				temp_args[key.strip()] = val[1:-1]
-
-
-			if "filename" in temp_args: self.files[temp_args['filename']] = body[:-2] # It is a file.
-			else: self.post_args[temp_args['name']] = body[:-2].decode() # It's a post arg.
+		self.files, self.post_args = multipart_parse(self.body, boundary)
 
 	async def perform_parse(self) -> None:
 		"""Performs full parsing on headers and body bytes."""
@@ -204,8 +167,16 @@ class Endpoint:
 		self.path: Union[str, re.Pattern, Iterable] = path
 		self.methods: List[str] = methods
 		self.handler: Coroutine = handler
+		self.condition: object = None
 		if not isinstance(self.path, re.Pattern) and all(char in self.path for char in ("<", ">")):
 			self.path = re.compile(rf"{self.path.replace('<', '(?P<').replace('>', '>.+)')}")
+
+		if isinstance(self.path, re.Pattern):
+			self.condition = eval("re.Pattern")
+		elif isinstance(self.path, str):
+			self.condition = eval("str")
+		elif isinstance(self.path, Iterable):
+			self.condition = eval("Iterable")
 
 	def parse_regex(self, path: str, regex_path: re.Pattern):
 		"""Checks for regex."""
@@ -222,13 +193,13 @@ class Endpoint:
 
 	def match(self, path: str) -> Union[bool, List[Any]]:
 		"""Compares the path with current endpoint path."""
-		if isinstance(self.path, re.Pattern):
+		if self.condition is re.Pattern:
 			# Parse regex :D
 			return self.parse_regex(path, self.path)
-		elif isinstance(self.path, str):
+		elif self.condition is str:
 			# This is simple one
 			return self.path == path
-		elif isinstance(self.path, Iterable):
+		elif self.condition is Iterable:
 			if path in self.path: return True
 			for p in self.path:
 				if isinstance(p, re.Pattern):
@@ -239,20 +210,31 @@ class Router:
 	"""A class for a single app router."""
 	def __init__(self, domain: Union[str, set, re.Pattern]) -> None:
 		self.domain: Union[str, set, re.Pattern] = domain
-		self.condition: eval = None
+		self.condition: object = None
 		self.endpoints: set = set()
 		self.before_serve: set = set()
 		self.after_serve: set = set()
 
 		if isinstance(self.domain, str):
-			self.condition = lambda dom: dom == self.domain
+			self.condition = eval("str")
 		elif isinstance(self.domain, Iterable):
-			if isinstance(next(iter(self.domain)), re.Pattern): # Python what the fuck you made me do.
-				self.condition = lambda dom: bool(p.match(dom) is not None for p in self.domain if isinstance(p, re.Pattern))
-			else:
-				self.condition = lambda dom: dom in self.domain
+			self.condition = eval("Iterable")
 		elif isinstance(self.domain, re.Pattern):
-			self.condition = lambda dom: self.domain.match(dom) is not None
+			self.condition = eval("re.Pattern")
+
+	def match(self, host: str) -> bool:
+		"""Performs some checks to match domain with host."""
+
+		if self.condition is str:
+			return host == self.domain
+		elif self.condition is Iterable:
+			if host in self.domain: return True
+			for domain in self.domain:
+				if isinstance(domain, re.Pattern):
+					return domain.match(host) is not None
+			return False
+		elif self.condition is re.Pattern:
+			return self.domain.match(dom) is not None
 
 	def before_request(self) -> Callable:
 		"""Serves things before request."""
@@ -328,7 +310,7 @@ class LenHTTP:
 	def find_router(self, host: str) -> Union[Router, None]:
 		"""Finds the right router."""
 		for router in self.routers:
-			if router.condition(host):
+			if router.match(host):
 				return router
 
 	def find_endpoint(self, router: Router, path: str) -> Union[None, Tuple[Union[List[Any], bool], Endpoint]]:
