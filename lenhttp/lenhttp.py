@@ -8,9 +8,8 @@ import select
 import signal
 import json
 import traceback
-import subprocess
 from .timer import Timer
-from .cutils import unquote, www_form, multipart_parse, header_parser
+from urllib.parse import unquote
 from .logger import info, error, warning
 from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List, Iterable
 
@@ -36,7 +35,7 @@ class Request:
 		self.__loop: asyncio.AbstractEventLoop = loop
 
 		self.type: str = "GET"
-		self.http_ver: str = "1.1"
+		self.http_ver: str = "HTTP/1.1"
 		self.path: str = "/"
 		self.body: bytearray = bytearray()
 		self.elapsed: str = "0ms" # Logging purposes.
@@ -64,15 +63,30 @@ class Request:
 		Returns:
 			Parsed headers, get_args.
 		"""
-		(self.type, self.path, self.version,
-			self.headers, self.get_args) = header_parser(data)
+		self.type, self.path, self.version = data.splitlines()[0].split(" ")
+
+		# Parsing get args.
+		if "?" in self.path:
+			self.path, args = self.path.split("?")
+
+			for arg in args.split("&"):
+				key, value = arg.split("=", 1)
+				self.get_args[key] = value.strip()
+
+		# Now headers.
+		for key, value in [header.split(":", 1) for header in data.splitlines()[1:]]:
+			self.headers[key] = value.strip()
 
 	def _www_form_parser(self) -> None:
 		"""Optional parser for parsing form data.
 		Returns:
 			Updates self.post with form data args.
 		"""
-		self.post_args |= www_form(self.body)
+		body_str = self.body.decode()
+
+		for args in body_str.split("&"):
+			k, v = args.split("=", 1)
+			self.post_args[unquote(k).strip()] = unquote(v).strip()
 
 	def return_json(self, code: int, content: Union[dict, str, Any]):
 		"""Returns an response but in json."""
@@ -120,7 +134,28 @@ class Request:
 
 		# Create an boundary.
 		boundary = "--" + self.headers['Content-Type'].split('boundary=', 1)[1]
-		self.files, self.post_args = multipart_parse(self.body, boundary)
+		parts = self.body.split(boundary.encode())[1:]
+
+		for part in parts[:-1]:
+
+			# We get headers & body.
+			headers, body = part.split(b"\r\n\r\n", 1)
+			
+			temp_headers = {}
+			for key, val in [p.split(":", 1) for p in [h for h in headers.decode().split("\r\n")[1:]]]:
+				temp_headers[key] = val.strip()
+
+			content = temp_headers.get("Content-Disposition")
+			if not content:
+				# Main header don't exist, we can't continue.
+				continue
+
+			temp_args = {}
+			for key, val in [args.split("=", 1) for args in content.split(";")[1:]]:
+				temp_args[key.strip()] = val[1:-1]
+
+			if "filename" in temp_args: self.files[temp_args['filename']] = body[:-2] # It is a file.
+			else: self.post_args[temp_args['name']] = body[:-2].decode() # It's a post arg.
 
 	async def perform_parse(self) -> None:
 		"""Performs full parsing on headers and body bytes."""
@@ -151,7 +186,7 @@ class Request:
 		if self.type == "POST":
 			if (ctx_type := self.headers.get("Content-Type")):
 				if ctx_type.startswith("multipart/form-data") or \
-					"form-data" in ctx_type:
+					"form-data" in ctx_type or "multipart/form-data" in ctx_type:
 					self._parse_multipart()
 				elif ctx_type in ("x-www-form", "application/x-www-form-urlencoded"):
 					self._www_form_parser()
@@ -234,7 +269,7 @@ class Router:
 					return domain.match(host) is not None
 			return False
 		elif self.condition is re.Pattern:
-			return self.domain.match(dom) is not None
+			return self.domain.match(host) is not None
 
 	def before_request(self) -> Callable:
 		"""Serves things before request."""
@@ -466,17 +501,8 @@ class LenHTTP:
 			# connection listening sock
 			sock = socket.socket(self.socket_fam)
 			sock.setblocking(False)
-			
-			if self.socket_fam is socket.AF_INET: # Should fix already binded port.
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-			try:
-				sock.bind(self.address)
-			except OSError as e:
-				warning("If it ask you for sudo password please enter it otherwise port will not unbind!")
-				subprocess.run(f"sudo kill -9 $(sudo lsof -t -i:{self.address[1]})", shell=True)
-				error("We have unbinded the port you want to use, just start server again!")
-				os._exit(1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+			sock.bind(self.address)
 
 			if self.socket_fam is socket.AF_UNIX:
 				os.chmod(self.address, 0o777)
