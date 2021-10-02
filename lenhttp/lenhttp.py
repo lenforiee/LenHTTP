@@ -133,7 +133,7 @@ class Request:
 		self.elapsed: str = "0ms" # Logging purposes.
 		self.conns_served: int = 0
 
-		self.headers: Dict[str, Any] = CaseInsensitiveDict()
+		self.headers: CaseInsensitiveDict = CaseInsensitiveDict()
 		self.get_args: Dict[str, Any] = {}
 		self.post_args: Dict[str, Any] = {}
 		self.files: Dict[str, Any] = {}
