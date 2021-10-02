@@ -24,6 +24,98 @@ class Globals:
 	json = None
 glob = Globals()
 
+class CaseInsensitiveDict:
+	"""A Python dictionary equivalent with case insensitive keys."""
+
+	__slots__ = ("_dict",)
+	def __init__(self, d: dict = None) -> None:
+		"""Creates an instance of `CaseInsensitiveDict`. If `d` is set, the
+		data in it will be converted into case insensitive."""
+
+		self._dict: dict = {}
+		
+		# Dict convertion.
+		if d:
+			if not isinstance(d, dict):
+				raise ValueError("Only conversion of dict is supported.")
+			self.__conv_dict(d)
+	
+	def __repr__(self) -> str:
+		"""String representation of the CaseInsensitiveDict."""
+
+		return f"<CaseInsensitiveDict {self._dict!r}>"
+	
+	# Dictionary Functionality.
+	def __setitem__(self, key, val) -> None:
+		"""Sets an item to the CaseInsensitiveDict."""
+
+		if key.__class__ is str: key = key.lower()
+
+		self._dict[key] = val
+	
+	def __getitem__(self, key):
+		"""Retrieves an item from the dictionary, raising a `KeyError` if not
+		found."""
+
+		if key.__class__ is str: key = key.lower()
+		return self._dict[key]
+
+	def __delitem__(self, key):
+		"""Deletes an item from the dictionary, raising a `KeyError` if not found."""
+
+		if key.__class__ is str: key = key.lower()
+		del self._dict[key]
+	
+	def __iter__(self):
+		"""Simple iteration support, iterating over the keys."""
+
+		for k in self._dict: yield k
+	
+	def __not__(self) -> bool:
+		"""Returns bool corresponding to whether the bool is empty."""
+
+		return not self._dict
+	
+	def __concat__(self, d: Union[dict, 'CaseInsensitiveDict']) -> None:
+		"""Expands the current dict."""
+
+		self.__conv_dict(d)
+	
+	def __contains__(self, key) -> bool:
+		"""Checks if the dict contains the key `key`."""
+
+		if key.__class__ is str: key = key.lower()
+		return key in self._dict
+	
+	def __conv_dict(self, d: Union[dict, 'CaseInsensitiveDict']) -> None:
+		"""Converts data from the dictionary `d` to our storage format.
+		
+		Note:
+			This does NOT clear the data of the CaseInsensitiveDict.
+		"""
+
+		for k, v in d.items():
+			if k.__class__ is str: k = k.lower()
+			self._dict[k] = v
+	
+	def items(self):
+		"""Iterates over all items and keys of the dict."""
+
+		return self._dict.items()
+	
+	def keys(self) -> tuple:
+		"""Displays all keys of the dictionary as a `tuple`."""
+
+		# Decided to do the conversion here as we dont need their fancy stuff.
+		return tuple(self._dict.keys())
+	
+	def get(self, key, default = None):
+		"""Returns the value of a `key` in the dict, returning `default` if
+		key does not exist."""
+
+		if key.__class__ is str: key = key.lower()
+		return self._dict.get(key, default)
+
 class Request:
 	"""A class for parsing incomming web request."""
 	def __init__(
@@ -41,7 +133,7 @@ class Request:
 		self.elapsed: str = "0ms" # Logging purposes.
 		self.conns_served: int = 0
 
-		self.headers: Dict[str, Any] = {}
+		self.headers: CaseInsensitiveDict = CaseInsensitiveDict()
 		self.get_args: Dict[str, Any] = {}
 		self.post_args: Dict[str, Any] = {}
 		self.files: Dict[str, Any] = {}
@@ -141,7 +233,7 @@ class Request:
 			# We get headers & body.
 			headers, body = part.split(b"\r\n\r\n", 1)
 			
-			temp_headers = {}
+			temp_headers = CaseInsensitiveDict()
 			for key, val in [p.split(":", 1) for p in [h for h in headers.decode().split("\r\n")[1:]]]:
 				temp_headers[key] = val.strip()
 

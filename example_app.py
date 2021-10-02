@@ -10,7 +10,7 @@ async def users(request: Request, user_id: int):
 	return f"Hello user with ID: {user_id}"
 
 app = Application(
-	port= 5563,
+	port= 6969,
 	routes= [ Endpoint("/", home_page), Endpoint("/u/<user_id>", users) ]
 )
 
