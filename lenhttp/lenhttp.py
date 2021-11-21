@@ -17,13 +17,13 @@ STATUS_CODE = {c.value: c.phrase for c in http.HTTPStatus}
 
 # Sadly no windows support.
 if os.name == "nt":
-	raise OSError("You can't use this package on nt machine!")
+	raise OSError("You can't use this package on windows machine!")
 
-class Globals:
-	logging = True
+class Glob:
 	json = None
-glob = Globals()
+	logging = False
 
+glob = Glob()
 class CaseInsensitiveDict:
 	"""A Python dictionary equivalent with case insensitive keys."""
 
@@ -118,6 +118,7 @@ class CaseInsensitiveDict:
 
 class Request:
 	"""A class for parsing incomming web request."""
+
 	def __init__(
 		self,
 		client: socket.socket, 
@@ -127,7 +128,7 @@ class Request:
 		self.__loop: asyncio.AbstractEventLoop = loop
 
 		self.type: str = "GET"
-		self.http_ver: str = "HTTP/1.1"
+		self.http_ver: str = "1.1"
 		self.path: str = "/"
 		self.body: bytearray = bytearray()
 		self.elapsed: str = "0ms" # Logging purposes.
@@ -144,6 +145,7 @@ class Request:
 	
 	def add_header(self, key: str, value: Any) -> None:
 		"""Adds header to response back headers."""
+
 		self.resp_headers[key] = value
 
 	def _parse_headers(self, data: str) -> None:
@@ -155,7 +157,9 @@ class Request:
 		Returns:
 			Parsed headers, get_args.
 		"""
-		self.type, self.path, self.version = data.splitlines()[0].split(" ")
+
+		self.type, self.path, version = data.splitlines()[0].split(" ")
+		self.version = version.split("/")[1]
 
 		# Parsing get args.
 		if "?" in self.path:
@@ -174,6 +178,7 @@ class Request:
 		Returns:
 			Updates self.post with form data args.
 		"""
+
 		body_str = self.body.decode()
 
 		for args in body_str.split("&"):
@@ -182,8 +187,8 @@ class Request:
 
 	def return_json(self, code: int, content: Union[dict, str, Any]):
 		"""Returns an response but in json."""
-		self.resp_code = code
 
+		self.resp_code = code
 		json_parser = glob.json or json.dumps
 		resp_back = json_parser(content)
 		self.resp_headers["Content-Type"] = "application/json"
@@ -197,6 +202,7 @@ class Request:
 		Returns:
 			Sends all data to client.
 		"""
+
 		resp = bytearray()
 		temp = [f"HTTP/1.1 {code} {STATUS_CODE.get(code)}"]
 
@@ -285,6 +291,7 @@ class Request:
 
 class Endpoint:
 	"""An dataclass to match route."""
+
 	def __init__(
 		self,
 		path: Union[str, re.Pattern, Iterable],
@@ -298,15 +305,9 @@ class Endpoint:
 		if not isinstance(self.path, re.Pattern) and all(char in self.path for char in ("<", ">")):
 			self.path = re.compile(rf"{self.path.replace('<', '(?P<').replace('>', '>.+)')}")
 
-		if isinstance(self.path, re.Pattern):
-			self.condition = eval("re.Pattern")
-		elif isinstance(self.path, str):
-			self.condition = eval("str")
-		elif isinstance(self.path, Iterable):
-			self.condition = eval("Iterable")
-
 	def parse_regex(self, path: str, regex_path: re.Pattern):
 		"""Checks for regex."""
+
 		if not (args := regex_path.match(path)):
 			return False
 
@@ -320,51 +321,46 @@ class Endpoint:
 
 	def match(self, path: str) -> Union[bool, List[Any]]:
 		"""Compares the path with current endpoint path."""
-		if self.condition is re.Pattern:
+
+		if self.path is re.Pattern:
 			# Parse regex :D
 			return self.parse_regex(path, self.path)
-		elif self.condition is str:
+		elif self.path is str:
 			# This is simple one
 			return self.path == path
-		elif self.condition is Iterable:
+		elif self.path is Iterable:
 			if path in self.path: return True
 			for p in self.path:
-				if isinstance(p, re.Pattern):
+				if p is re.Pattern:
 					return self.parse_regex(path, p)
 			return False
 
 class Router:
 	"""A class for a single app router."""
+
 	def __init__(self, domain: Union[str, set, re.Pattern]) -> None:
 		self.domain: Union[str, set, re.Pattern] = domain
-		self.condition: object = None
 		self.endpoints: set = set()
 		self.before_serve: set = set()
 		self.after_serve: set = set()
 
-		if isinstance(self.domain, str):
-			self.condition = eval("str")
-		elif isinstance(self.domain, Iterable):
-			self.condition = eval("Iterable")
-		elif isinstance(self.domain, re.Pattern):
-			self.condition = eval("re.Pattern")
-
 	def match(self, host: str) -> bool:
 		"""Performs some checks to match domain with host."""
 
-		if self.condition is str:
+		if self.domain is str:
 			return host == self.domain
-		elif self.condition is Iterable:
+		elif self.domain is Iterable:
 			if host in self.domain: return True
 			for domain in self.domain:
-				if isinstance(domain, re.Pattern):
+				if domain is re.Pattern:
 					return domain.match(host) is not None
 			return False
-		elif self.condition is re.Pattern:
+		elif self.domain is re.Pattern:
 			return self.domain.match(host) is not None
 
 	def before_request(self) -> Callable:
 		"""Serves things before request."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.before_serve.add(handler)
 			return handler
@@ -372,6 +368,7 @@ class Router:
 
 	def after_request(self) -> Callable:
 		"""Serves things after request."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.after_serve.add(handler)
 			return handler
@@ -379,6 +376,7 @@ class Router:
 	
 	def add_endpoint(self, path: Union[str, re.Pattern, Iterable], methods: List[str] = ["GET"]) -> Callable:
 		"""Adds the endpoint class to a set."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.endpoints.add(Endpoint(path, handler, methods))
 			return handler
@@ -386,6 +384,7 @@ class Router:
 
 class LenHTTP:
 	"""An http server class."""
+
 	def __init__(
 		self, 
 		address: Union[Tuple[str, int], str], 
@@ -410,14 +409,17 @@ class LenHTTP:
 
 	def add_router(self, router: Router) -> None:
 		"""Adds router to server."""
+
 		self.routers.add(router)
 
 	def add_routers(self, routers: set[Router]) -> None:
 		"""Adds routers to server."""
+
 		self.routers |= routers
 
 	def add_task(self, task: Coroutine, *args) -> None:
 		"""Adds task to server."""
+
 		if args:
 			self.coro_tasks.add((task, args))
 		else:
@@ -425,35 +427,42 @@ class LenHTTP:
 
 	def add_tasks(self, tasks: set[Coroutine]) -> None:
 		"""Adds tasks to server."""
+
 		self.coro_tasks |= tasks
 
 	def add_middleware(self, code: int) -> Callable:
 		"""Adds an custom middleware for handling codes."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.middleware_request[code] = handler
 			return handler
 		return wrapper
 
-	def find_router(self, host: str) -> Union[Router, None]:
+	def find_router(self, host: str) -> Optional[Router]:
 		"""Finds the right router."""
+
 		for router in self.routers:
 			if router.match(host):
 				return router
 
-	def find_endpoint(self, router: Router, path: str) -> Union[None, Tuple[Union[List[Any], bool], Endpoint]]:
+	def find_endpoint(self, router: Router, path: str) -> Optional[Tuple[Union[List[Any], bool], Endpoint]]:
 		"""Match an endpoint with given path."""
+
 		for endpoint in router.endpoints:
 			if (check := endpoint.match(path)):
 				return (check, endpoint)
 
 	def before_serving(self) -> Callable:
 		"""Adds the coroutines to be started before server permanently starts."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.before_serving_coros.add(handler)
 			return handler
 		return wrapper
 
 	def after_serving(self) -> Callable:
+		"""Adds the coroutines to be started after server close."""
+
 		def wrapper(handler: Coroutine) -> Coroutine:
 			self.after_serving_coros.add(handler)
 			return handler
@@ -528,14 +537,13 @@ class LenHTTP:
 
 	async def handle_request(self, client: socket.socket) -> None:
 		"""Handles a connection from socket."""
-		timer1 = Timer()
-		timer2 = Timer()
-		timer1.start()
-		timer2.start()
+
+		timer = Timer()
+		timer.start()
 
 		# Parse request.
 		await (req := Request(client, self.loop)).perform_parse()
-		req.elapsed = timer1
+		req.elapsed = timer
 
 		if "Host" not in req.headers:
 			client.shutdown(socket.SHUT_RDWR)
@@ -555,12 +563,12 @@ class LenHTTP:
 		except Exception: pass
 
 		if glob.logging:
-			timed = timer2.time_str()
 			path = f"{req.headers['Host']}{req.path}"
-			info(f"{req.resp_code} | Handled {req.type} {path} in {timed}")
+			info(f"{req.resp_code} | Handled {req.type} {path} in {req.elapsed.time_str()}")
 
 	def start(self) -> None:
 		"""Starts an http server in perma loop."""
+
 		async def runner() -> None:
 			if isinstance(self.address, tuple):
 				addr_log = f"http://{self.address[0]}:{self.address[1]}/"
@@ -602,10 +610,7 @@ class LenHTTP:
 			sock.listen(self.max_conns)
 
 			if glob.logging:
-				if self.app:
-					info(f"===== LenHTTP (Application) running on {addr_log} =====")
-				else:
-					info(f"===== LenHTTP (ASGI) running on {addr_log} =====")
+				info(f"===== LenHTTP ({'ASGI' if not self.app else 'Application'}) running on {addr_log} =====")
 			
 			close = False
 			while not close:
@@ -674,10 +679,8 @@ class LenHTTP:
 		finally:
 			future.remove_done_callback(_callback)
 			if glob.logging:
-				if self.app:
-					info("===== LenHTTP application is stopping =====")
-				else:
-					info("===== LenHTTP server is stopping =====")
+				info(f"===== LenHTTP {'server' if not self.app else 'application'} is stopping =====")
+
 			self.loop.close()
 
 class Application(LenHTTP):
@@ -686,23 +689,27 @@ class Application(LenHTTP):
 	Note: This is wrapper around LenHTTP
 	to allow users not use Router class for easier code management.
 	"""
+
 	def __init__(
 		self,
-		port: int,
 		routes: List[Endpoint],
 		**kwargs
 	) -> None:
 		self.routes: List[Endpoint] = routes
-		self.router: Union[Router, None] = None
+		self.router: Router = Router("") # Placeholer router
+		self.find_router: eval = lambda _: self.router
 		kwargs["app"] = True
-		self.loopback_addr = kwargs.get("loopback", "0.0.0.0")
-		super().__init__((self.loopback_addr, port), **kwargs)
-		self.find_router: eval = lambda a: self.router
-		self.__init__routes()
 
-	def __init__routes(self) -> None:
-		"""Initialise routes."""
-		self.router = Router("") # Placeholer router
+		if "port" in kwargs and "unix" in kwargs:
+			raise RuntimeError("Please choose either 'port' or 'unix', cannot use both!")
+		elif "port" in kwargs:
+			addr = (kwargs.pop("loopback", "0.0.0.0"), kwargs.pop('port'))
+		elif "unix" in kwargs:
+			addr = kwargs.pop('unix')
+		else:
+			raise ValueError("Invalid connection type supplied! Use either 'port' or 'unix'")
+
+		super().__init__(addr, **kwargs)
 		for route in self.routes:
 			self.router.endpoints.add(route)
 
