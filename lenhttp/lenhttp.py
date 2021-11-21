@@ -7,11 +7,12 @@ import gzip
 import select
 import signal
 import json
+import copy
 import traceback
 from .timer import Timer
 from urllib.parse import unquote
 from .logger import info, error, warning
-from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List, Iterable
+from typing import Any, Union, Tuple, Dict, Callable, Coroutine, List, Iterable, Optional
 
 STATUS_CODE = {c.value: c.phrase for c in http.HTTPStatus}
 
@@ -564,7 +565,7 @@ class LenHTTP:
 
 		if glob.logging:
 			path = f"{req.headers['Host']}{req.path}"
-			info(f"{req.resp_code} | Handled {req.type} {path} in {req.elapsed.time_str()}")
+			info(f"{req.resp_code} | Handled {req.type} {path} in {req.elapsed}")
 
 	def start(self) -> None:
 		"""Starts an http server in perma loop."""
