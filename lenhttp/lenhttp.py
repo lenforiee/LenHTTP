@@ -7,7 +7,6 @@ import gzip
 import select
 import signal
 import json
-import copy
 import traceback
 from .timer import Timer
 from urllib.parse import unquote
