@@ -322,16 +322,16 @@ class Endpoint:
 	def match(self, path: str) -> Union[bool, List[Any]]:
 		"""Compares the path with current endpoint path."""
 
-		if self.path is re.Pattern:
+		if isinstance(self.path, re.Pattern):
 			# Parse regex :D
 			return self.parse_regex(path, self.path)
-		elif self.path is str:
+		elif isinstance(self.path, str):
 			# This is simple one
 			return self.path == path
-		elif self.path is Iterable:
+		elif isinstance(self.path, Iterable):
 			if path in self.path: return True
 			for p in self.path:
-				if p is re.Pattern:
+				if isinstance(p, re.Pattern):
 					return self.parse_regex(path, p)
 			return False
 
@@ -347,15 +347,15 @@ class Router:
 	def match(self, host: str) -> bool:
 		"""Performs some checks to match domain with host."""
 
-		if self.domain is str:
+		if isinstance(self.domain, str):
 			return host == self.domain
-		elif self.domain is Iterable:
+		elif isinstance(self.domain, Iterable):
 			if host in self.domain: return True
 			for domain in self.domain:
-				if domain is re.Pattern:
+				if isinstance(domain, re.Pattern):
 					return domain.match(host) is not None
 			return False
-		elif self.domain is re.Pattern:
+		elif isinstance(self.domain, re.Pattern):
 			return self.domain.match(host) is not None
 
 	def before_request(self) -> Callable:

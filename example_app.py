@@ -11,6 +11,7 @@ async def users(request: Request, user_id: int):
 
 app = Application(
 	port= 6969,
+	logging= True,
 	routes= [ Endpoint("/", home_page), Endpoint("/u/<user_id>", users) ]
 )
 
