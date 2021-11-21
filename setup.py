@@ -9,7 +9,7 @@ if os.name == "nt":
 
 setuptools.setup(
     name="LenHTTP",
-    version="2.2.5",
+    version="2.2.6",
     author="lenforiee",
     author_email="lenforiee@gmail.com",
     description="An powerful web framework written from scratch!",
