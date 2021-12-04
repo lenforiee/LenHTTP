@@ -167,7 +167,7 @@ class Request:
 
 			for arg in args.split("&"):
 				key, value = arg.split("=", 1)
-				self.get_args[key] = value.strip()
+				self.get_args[unquote(key)] = unquote(value).strip()
 
 		# Now headers.
 		for key, value in [header.split(":", 1) for header in data.splitlines()[1:]]:
